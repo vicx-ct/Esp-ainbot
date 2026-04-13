@@ -2,36 +2,38 @@ local player = game.Players.LocalPlayer
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UIS = game:GetService("UserInputService")
+local cam = workspace.CurrentCamera
 
 local aimOn = false
 local espOn = false
+local lockedTarget = nil
 
 -- GUI
-local gui = Instance.new("ScreenGui", player:WaitForChild("PlayerGui"))
+local gui = Instance.new("ScreenGui")
+gui.Parent = player:WaitForChild("PlayerGui")
+gui.ResetOnSpawn = false
 
 -- BOTÕES
-local aimBtn = Instance.new("TextButton", gui)
-aimBtn.Size = UDim2.new(0,150,0,50)
-aimBtn.Position = UDim2.new(0.5,-75,0.5,-25)
-aimBtn.Text = "AIMBOT OFF"
-aimBtn.BackgroundColor3 = Color3.fromRGB(150,0,0)
-aimBtn.TextScaled = true
-aimBtn.Active = true
+local function createBtn(text, posY)
+	local b = Instance.new("TextButton", gui)
+	b.Size = UDim2.new(0,150,0,50)
+	b.Position = UDim2.new(0.5,-75,0.5,posY)
+	b.Text = text
+	b.BackgroundColor3 = Color3.fromRGB(150,0,0)
+	b.TextScaled = true
+	b.Active = true
+	return b
+end
 
-local espBtn = Instance.new("TextButton", gui)
-espBtn.Size = UDim2.new(0,150,0,50)
-espBtn.Position = UDim2.new(0.5,-75,0.5,40)
-espBtn.Text = "ESP OFF"
-espBtn.BackgroundColor3 = Color3.fromRGB(150,0,0)
-espBtn.TextScaled = true
-espBtn.Active = true
+local aimBtn = createBtn("AIMBOT OFF",-25)
+local espBtn = createBtn("ESP OFF",40)
 
 -- DRAG
 local function dragify(btn)
-	local dragging, dragInput, startPos, startFramePos
+	local dragging, startPos, startFramePos
 	
 	btn.InputBegan:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+		if input.UserInputType.Name:find("Mouse") or input.UserInputType.Name:find("Touch") then
 			dragging = true
 			startPos = input.Position
 			startFramePos = btn.Position
@@ -44,16 +46,9 @@ local function dragify(btn)
 		end
 	end)
 	
-	btn.InputChanged:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-			dragInput = input
-		end
-	end)
-	
 	UIS.InputChanged:Connect(function(input)
-		if input == dragInput and dragging then
+		if dragging then
 			local delta = input.Position - startPos
-			
 			btn.Position = UDim2.new(
 				startFramePos.X.Scale,
 				startFramePos.X.Offset + delta.X,
@@ -67,26 +62,21 @@ end
 dragify(aimBtn)
 dragify(espBtn)
 
--- CROSSHAIR
-local cam = workspace.CurrentCamera
-
+-- CROSSHAIR + FOV
 local dot = Instance.new("Frame", gui)
 dot.Size = UDim2.new(0,8,0,8)
-dot.Position = UDim2.new(0.5,-4,0.5,-4)
 dot.BackgroundColor3 = Color3.fromRGB(255,0,0)
 dot.BorderSizePixel = 0
 Instance.new("UICorner", dot).CornerRadius = UDim.new(1,0)
 
 local fov = Instance.new("Frame", gui)
 fov.Size = UDim2.new(0,150,0,150)
-fov.Position = UDim2.new(0.5,-75,0.5,-75)
 fov.BackgroundTransparency = 1
-
-local fovStroke = Instance.new("UIStroke", fov)
-fovStroke.Thickness = 2
+local stroke = Instance.new("UIStroke", fov)
+stroke.Thickness = 2
 Instance.new("UICorner", fov).CornerRadius = UDim.new(1,0)
 
--- ESP STORAGE
+-- ESP
 local visuals = {}
 
 local function createESP(p)
@@ -95,12 +85,8 @@ local function createESP(p)
 	local box = Instance.new("Frame", gui)
 	box.BackgroundTransparency = 1
 	
-	local stroke = Instance.new("UIStroke", box)
-	stroke.Thickness = 2
-	
-	local hp = Instance.new("Frame", box)
-	hp.Size = UDim2.new(0,4,1,0)
-	hp.Position = UDim2.new(0,-6,0,0)
+	local s = Instance.new("UIStroke", box)
+	s.Thickness = 2
 	
 	local name = Instance.new("TextLabel", box)
 	name.Size = UDim2.new(1,0,0,14)
@@ -108,23 +94,8 @@ local function createESP(p)
 	name.BackgroundTransparency = 1
 	name.TextScaled = true
 	
-	visuals[p] = {
-		box = box,
-		stroke = stroke,
-		hp = hp,
-		name = name,
-		lastPos = Vector2.new(0,0)
-	}
+	visuals[p] = {box=box,stroke=s,name=name}
 end
-
-Players.PlayerAdded:Connect(function(p)
-	p.CharacterAdded:Connect(function()
-		if espOn then
-			task.wait(0.5)
-			createESP(p)
-		end
-	end)
-end)
 
 local function getClosest()
 	local closest, dist = nil, math.huge
@@ -151,36 +122,36 @@ end
 
 -- LOOP
 RunService.RenderStepped:Connect(function()
+	local viewport = cam.ViewportSize
+	
+	-- CENTRALIZAÇÃO REAL
+	dot.Position = UDim2.new(0,viewport.X/2-4,0,viewport.Y/2-4)
+	fov.Position = UDim2.new(0,viewport.X/2-75,0,viewport.Y/2-75)
+	
 	local myRoot = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
 	if not myRoot then return end
 	
-	local t = tick()
-	local pulse = math.sin(t*3)*2
-	dot.Size = UDim2.new(0,8+pulse,0,8+pulse)
-	
 	-- AIMBOT
 	if aimOn then
-		local target = getClosest()
+		if not lockedTarget
+		or not lockedTarget.Character
+		or lockedTarget.Character:FindFirstChildOfClass("Humanoid").Health <= 0 then
+			
+			lockedTarget = getClosest()
+		end
 		
-		if target and target.Character then
-			local root = target.Character:FindFirstChild("HumanoidRootPart")
-			if root then
-				local pos, onScreen = cam:WorldToViewportPoint(root.Position)
-				if onScreen then
-					dot.Position = UDim2.new(0,pos.X-4,0,pos.Y-4)
-					
-					local targetCF = CFrame.new(cam.CFrame.Position, root.Position)
-					cam.CFrame = cam.CFrame:Lerp(targetCF, 0.15)
-					
-					dot.BackgroundColor3 = Color3.fromRGB(0,255,0)
-					fovStroke.Color = Color3.fromRGB(0,255,0)
-				end
+		if lockedTarget and lockedTarget.Character then
+			local head = lockedTarget.Character:FindFirstChild("Head")
+			if head then
+				cam.CFrame = CFrame.new(cam.CFrame.Position, head.Position)
+				dot.BackgroundColor3 = Color3.fromRGB(0,255,0)
+				stroke.Color = Color3.fromRGB(0,255,0)
 			end
 		end
 	else
-		dot.Position = UDim2.new(0.5,-4,0.5,-4)
+		lockedTarget = nil
 		dot.BackgroundColor3 = Color3.fromRGB(255,0,0)
-		fovStroke.Color = Color3.fromRGB(255,0,0)
+		stroke.Color = Color3.fromRGB(255,0,0)
 	end
 	
 	-- ESP
@@ -198,50 +169,26 @@ RunService.RenderStepped:Connect(function()
 			local hum = char:FindFirstChildOfClass("Humanoid")
 			
 			if not root or not head or not hum then
-				v.box.Visible = false
+				v.box.Visible=false
 				continue
 			end
 			
-			local rootPos, onScreen = cam:WorldToViewportPoint(root.Position)
-			local headPos = cam:WorldToViewportPoint(head.Position)
+			local pos, onScreen = cam:WorldToViewportPoint(root.Position)
 			
 			if onScreen then
 				local dist = (myRoot.Position - root.Position).Magnitude
 				
-				-- COR POR DISTÂNCIA
-				local color
-				if dist <= 110 then
-					color = Color3.fromRGB(0,255,0)
-				else
-					color = Color3.fromRGB(255,0,0)
-				end
+				local color = dist <= 110 and Color3.fromRGB(0,255,0) or Color3.fromRGB(255,0,0)
 				
-				local height = math.abs(headPos.Y - rootPos.Y) * 2
-				local width = height / 2
-				
-				local targetPos = Vector2.new(rootPos.X - width/2, rootPos.Y - height/2)
-				v.lastPos = v.lastPos:Lerp(targetPos, 0.2)
-				
-				v.box.Position = UDim2.new(0,v.lastPos.X,0,v.lastPos.Y)
-				v.box.Size = UDim2.new(0,width,0,height)
+				v.box.Position = UDim2.new(0,pos.X-25,0,pos.Y-50)
+				v.box.Size = UDim2.new(0,50,0,100)
 				v.box.Visible = true
 				
 				v.stroke.Color = color
-				
-				local hpPercent = hum.Health / hum.MaxHealth
-				v.hp.Size = UDim2.new(0,4,hpPercent,0)
-				v.hp.Position = UDim2.new(0,-6,1-hpPercent,0)
-				v.hp.BackgroundColor3 = Color3.fromRGB(0,255,0)
-				
 				v.name.Text = p.Name.." | "..math.floor(dist)
 				v.name.TextColor3 = color
-				
-				-- OTIMIZAÇÃO
-				if dist > 500 then
-					v.box.Visible = false
-				end
 			else
-				v.box.Visible = false
+				v.box.Visible=false
 			end
 		end
 	end
